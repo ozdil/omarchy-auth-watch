@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import subprocess
+import json
+import re
+
+def scan_failed_auth():
+    failed_sudo = []
+    failed_ssh = []
+    try:
+        res = subprocess.run(
+            ['journalctl', '_COMM=sudo', '_COMM=sshd', '--since=24 hours ago', '-n', '50', '--no-pager'],
+            capture_output=True, text=True, timeout=2
+        )
+        lines = res.stdout.strip().split('\n')
+        for line in lines:
+            if 'authentication failure' in line.lower() or 'failed password' in line.lower():
+                if 'sudo' in line:
+                    failed_sudo.append(line.strip())
+                elif 'sshd' in line:
+                    failed_ssh.append(line.strip())
+    except Exception:
+        pass
+
+    total_failures = len(failed_sudo) + len(failed_ssh)
+    output = {
+        'total_failures': total_failures,
+        'failed_sudo_count': len(failed_sudo),
+        'failed_ssh_count': len(failed_ssh),
+        'status': 'ALERT' if total_failures > 0 else 'SECURE',
+        'status_color': '#e63946' if total_failures > 0 else '#00cbb8',
+        'sample_failures': (failed_sudo + failed_ssh)[:10]
+    }
+    print(json.dumps(output, indent=2))
+
+if __name__ == '__main__':
+    scan_failed_auth()
