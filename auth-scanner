@@ -3,55 +3,78 @@ import subprocess
 import json
 import re
 import sys
+import os
+import time
 
-def sanitize_str(s, max_len=80):
+MAX_SCAN_SECONDS = 1.5
+MAX_LOG_LINES = 60
+MAX_LINE_BYTES = 16 * 1024
+
+def sanitize_str(s, max_len=60):
     return re.sub(r'[\x00-\x1f\x7f-\x9f]', '', str(s))[:max_len]
 
-def scan_auth_journal():
+def scan_auth_logs():
+    start_time = time.monotonic()
+    journal_path = "/usr/bin/journalctl" if os.path.exists("/usr/bin/journalctl") else "journalctl"
+
     try:
-        # Structured query for auth events in last 24h, bounded to max 100 entries
-        res = subprocess.run(
-            ["journalctl", "-u", "systemd-logind", "-u", "sshd", "-g", "Failed|invalid|sudo", "--since", "24 hours ago", "-n", "100", "--no-pager", "-o", "cat"],
-            capture_output=True,
+        # Structured query for auth events in last 24h
+        proc = subprocess.Popen(
+            [journal_path, "-q", "-n", "80", "--since=24 hours ago", "--no-pager"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=2.5,
-            check=False
+            env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
         )
-        if res.returncode != 0:
-            return {
-                "status": "UNKNOWN",
-                "status_color": "#f59e0b",
-                "failed_attempts": 0,
-                "error": "journalctl okunamadı (yetki/servis hatası)",
-                "events": []
-            }
-
-        lines = res.stdout.strip().splitlines()
-        failed_events = []
-
-        for line in lines:
-            clean_line = sanitize_str(line, 75)
-            if any(k in clean_line.lower() for k in ("failed password", "authentication failure", "incorrect password", "invalid user", "pam_unix")):
-                failed_events.append(clean_line)
-
-        failed_count = len(failed_events)
-        status = "SECURE" if failed_count == 0 else "WARNING"
-        status_color = "#00cbb8" if failed_count == 0 else "#ef4444"
-
-        return {
-            "status": status,
-            "status_color": status_color,
-            "failed_attempts": failed_count,
-            "events": failed_events[:15]
-        }
     except Exception as e:
         return {
             "status": "UNKNOWN",
-            "status_color": "#f59e0b",
-            "failed_attempts": 0,
-            "error": sanitize_str(str(e), 60),
+            "failed_events_count": 0,
+            "readable_scope": "Kısıtlı / Erişilemedi",
+            "error": sanitize_str(str(e)),
             "events": []
         }
 
+    lines = []
+    total_bytes = 0
+    try:
+        while True:
+            if time.monotonic() - start_time > MAX_SCAN_SECONDS:
+                proc.kill()
+                break
+            line = proc.stdout.readline()
+            if not line:
+                break
+            total_bytes += len(line.encode("utf-8"))
+            if total_bytes > MAX_LINE_BYTES or len(lines) >= MAX_LOG_LINES:
+                proc.kill()
+                break
+            lines.append(line.strip())
+        proc.wait(timeout=0.3)
+    except Exception:
+        proc.kill()
+
+    failed_events = []
+    
+    # Patterns for auth failures
+    failure_regex = re.compile(r'(failed|authentication failure|incorrect password|invalid user|pam_unix.*authentication failure)', re.IGNORECASE)
+
+    for l in lines:
+        if failure_regex.search(l):
+            failed_events.append({
+                "raw_event": sanitize_str(l, 80)
+            })
+
+    fail_count = len(failed_events)
+    status = "ALERT" if fail_count > 0 else "NORMAL"
+
+    return {
+        "status": status,
+        "failed_events_count": fail_count,
+        "readable_scope": "Son 24 Saat (Kullanıcı Günlüğü)",
+        "events": failed_events[:20]
+    }
+
 if __name__ == "__main__":
-    print(json.dumps(scan_auth_journal()))
+    res = scan_auth_logs()
+    print(json.dumps(res))

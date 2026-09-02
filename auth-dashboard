@@ -1,37 +1,44 @@
-#!/usr/bin/env bash
-DIR="$(cd "$(dirname "$(realpath "$0")")" >/dev/null 2>&1 && pwd)"
-clear
-echo -e "\033[1;36m=================================================================\033[0m"
-echo -e "\033[1;33m  🚨 AUTH WATCH • PAM, Sudo & SSH Giriş Denemeleri Denetçisi \033[0m"
-echo -e "\033[1;36m=================================================================\033[0m"
-echo ""
+#!/usr/bin/env python3
+import os
+import sys
+import subprocess
+import json
 
-DATA=$("$DIR/auth-scanner" 2>/dev/null || echo '{"status":"UNKNOWN","events":[]}')
+def main():
+    plugin_dir = os.path.dirname(os.path.realpath(__file__))
+    scanner_path = os.path.join(plugin_dir, "auth-scanner")
 
-python3 -c "
-import json, sys
+    os.system("clear")
+    print("\033[1;36m=================================================================\033[0m")
+    print("\033[1;33m  🚨 AUTH WATCH • Kimlik Doğrulama & Giriş Denetçisi \033[0m")
+    print("\033[1;36m=================================================================\033[0m\n")
 
-try:
-    d = json.loads('''$DATA''')
-    status = d.get('status', 'UNKNOWN')
-    failed = d.get('failed_attempts', 0)
-    events = d.get('events', [])
+    try:
+        res = subprocess.run([scanner_path], capture_output=True, text=True, timeout=2.0)
+        data = json.loads(res.stdout) if res.returncode == 0 else {}
+    except Exception as e:
+        data = {"status": "UNKNOWN", "error": str(e)}
 
-    print(f'📊 Durum: {status} | Son 24 Saat Hatalı Giriş: {failed}\n')
+    status = data.get("status", "UNKNOWN")
+    failed = data.get("failed_events_count", 0)
+    scope = data.get("readable_scope", "Bilinmiyor")
+    events = data.get("events", [])
+
+    print(f"📊 Durum: {status} | Son 24 Saat Hatalı Giriş: {failed} | Kapsam: {scope}\n")
+    print("SON ŞÜPHELİ / HATALI GİRİŞ GÜNLÜKLERİ:")
+    print("-" * 65)
+
     if events:
-        print('Son Başarısız Giriş Kayıtları:')
-        print('-' * 65)
         for ev in events:
-            print(f'• {ev}')
+            print(f"⚠️  {ev.get('raw_event', '')}")
     else:
-        if status == 'SECURE':
-            print('✓ Son 24 saatte başarısız yetkilendirme denemesi kaydedilmedi.')
-        else:
-            print(f'⚠️ Log okunamadı: {d.get(\"error\", \"Bilinmeyen hata\")}')
-except Exception as e:
-    print(f'Hata: {e}')
-"
+        print("✓ Son 24 saat içinde şüpheli hatalı giriş kaydı tespit edilmedi.")
 
-echo ""
-echo -e "\033[0;90mKapatmak için bir tuşa basın...\033[0m"
-read -n 1 -s -r
+    print("\n\033[0;90mKapatmak için Enter'a basın...\033[0m")
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+if __name__ == "__main__":
+    main()

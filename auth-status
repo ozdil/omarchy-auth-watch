@@ -1,28 +1,34 @@
-#!/usr/bin/env bash
-set -eo pipefail
-DIR="$(cd "$(dirname "$(realpath "$0")")" >/dev/null 2>&1 && pwd)"
-SCAN_OUT="$("$DIR/auth-scanner" 2>/dev/null || echo '{"status":"UNKNOWN","failed_attempts":0}')"
+#!/usr/bin/env python3
+import subprocess
+import json
+import os
+import sys
 
-python3 -c "
-import json, sys
+def main():
+    plugin_dir = os.path.dirname(os.path.realpath(__file__))
+    scanner_path = os.path.join(plugin_dir, "auth-scanner")
 
-try:
-    d = json.loads('''$SCAN_OUT''')
-    status = d.get('status', 'UNKNOWN')
-    failed = d.get('failed_attempts', 0)
+    try:
+        res = subprocess.run([scanner_path], capture_output=True, text=True, timeout=2.0)
+        data = json.loads(res.stdout) if res.returncode == 0 else {}
+    except Exception:
+        data = {}
 
-    if status == 'SECURE':
-        text = '󰌾 Auth: Güvenli'
-        css = 'normal'
-    elif status == 'WARNING':
-        text = f'🚨 {failed} Başarısız Giriş!'
-        css = 'alert'
+    status = data.get("status", "UNKNOWN")
+    failed = data.get("failed_events_count", 0)
+
+    if status == "NORMAL":
+        text = "󰌾 Auth: Temiz"
+        css = "normal"
+    elif status == "ALERT":
+        text = f"󰌿 {failed} Hatalı Giriş!"
+        css = "alert"
     else:
-        text = '󰌾 Auth: Bilinmiyor'
-        css = 'alert'
+        text = "󰌾 Auth: Bilinmiyor"
+        css = "alert"
 
-    tooltip = f'🚨 Auth Log Auditor\n• Durum: {status}\n• Son 24s Hatalı Giriş: {failed}\n\n[Sol Tık] Giriş Loglarını İncele'
-    print(json.dumps({'text': text, 'tooltip': tooltip, 'class': css}))
-except Exception:
-    print(json.dumps({'text': '󰌾 Auth: Hata', 'tooltip': 'Hata: Auth verisi alınamadı', 'class': 'alert'}))
-"
+    tooltip = f"🚨 Auth Watch • Kimlik Doğrulama Denetçisi\n• Durum: {status}\n• Hatalı Giriş Sayısı: {failed}\n• Kapsam: {data.get('readable_scope', 'Kullanıcı Günlüğü')}\n\n[Sol Tık] Olay Günlüğünü Aç"
+    print(json.dumps({"text": text, "tooltip": tooltip, "class": css}))
+
+if __name__ == "__main__":
+    main()

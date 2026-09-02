@@ -10,31 +10,28 @@ Panel {
   moduleName: "ozdil.auth-watch"
   ipcTarget: "ozdil.auth-watch"
 
-  property int failedCount: 0
+  property int failCount: 0
   property string statusText: "Yükleniyor..."
-  property string statusColor: "#00cbb8"
 
   Process {
     id: scanProc
-    command: ["auth-scanner"]
+    command: [Qt.resolvedUrl("auth-scanner").toString().replace(/^file:\/\//, "")]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         try {
           var parsed = JSON.parse(text)
-          root.failedCount = parsed.failed_attempts || 0
-          root.statusColor = parsed.status_color || "#f59e0b"
-          root.statusText = parsed.status || "UNKNOWN"
+          root.failCount = parsed.failed_events_count || 0
+          root.statusText = parsed.status || "NORMAL"
         } catch(e) {
-          root.statusText = "ERROR"
-          root.statusColor = "#f59e0b"
+          root.statusText = "UNKNOWN"
         }
       }
     }
   }
 
   Timer {
-    interval: 15000
+    interval: 10000
     running: true
     repeat: true
     triggeredOnStart: true
@@ -47,10 +44,9 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.failedCount > 0 ? ("🚨 " + root.failedCount + " Auth") : "󰌾 Auth"
-    color: root.statusColor
+    text: "󰌾 " + (root.failCount > 0 ? "!" + root.failCount : "✓")
     slotSize: Style.bar.statusSlot
-    tooltipText: "Auth Auditor: " + root.statusText + " (" + root.failedCount + " hatalı giriş)"
+    tooltipText: "Auth Watch: " + root.failCount + " hatalı giriş (" + root.statusText + ")"
     onPressed: root.toggle()
   }
 
@@ -69,24 +65,25 @@ Panel {
       spacing: Style.space(12)
 
       Text {
-        text: "🚨 Auth Denetçisi"
+        text: "🚨 Auth Watch"
         font.pixelSize: Style.font.title
         font.bold: true
         color: root.bar ? root.bar.foreground : "#ffffff"
       }
 
       Text {
-        text: "Durum: " + root.statusText + " (" + root.failedCount + " Başarısız Deneme)"
-        color: root.statusColor
+        text: "Durum: " + root.statusText + " (" + root.failCount + " Hatalı Giriş Olayı)"
+        color: root.failCount > 0 ? "#ef4444" : "#34d399"
         font.bold: true
       }
 
       Button {
         width: parent.width
-        text: "📋 Oturum Loglarını İncele"
+        text: "🔍 Giriş Günlüğünü Aç"
         onClicked: {
           root.close()
-          if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation auth-dashboard")
+          var dashPath = Qt.resolvedUrl("auth-dashboard").toString().replace(/^file:\/\//, "")
+          if (root.bar) root.bar.run("omarchy-launch-floating-terminal-with-presentation " + dashPath)
         }
       }
     }
