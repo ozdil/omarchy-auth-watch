@@ -1,32 +1,37 @@
 #!/usr/bin/env bash
+DIR="$(cd "$(dirname "$(realpath "$0")")" >/dev/null 2>&1 && pwd)"
 clear
 echo -e "\033[1;36m=================================================================\033[0m"
-echo -e "\033[1;31m  🚨 OMARCHY AUTH WATCH • SSH & Sudo Yetkisiz Giriş Nöbetçisi \033[0m"
+echo -e "\033[1;33m  🚨 AUTH WATCH • PAM, Sudo & SSH Giriş Denemeleri Denetçisi \033[0m"
 echo -e "\033[1;36m=================================================================\033[0m"
 echo ""
-echo -e "\033[1;33m🔍 Son 24 saatteki PAM, Sudo ve SSH oturum açma denemeleri:\033[0m"
-echo ""
+
+DATA=$("$DIR/auth-scanner" 2>/dev/null || echo '{"status":"UNKNOWN","events":[]}')
 
 python3 -c "
-import subprocess, json
-res = subprocess.run(['/home/ozdil/.config/omarchy/plugins/auth-watch/auth-scanner'], capture_output=True, text=True)
-data = json.loads(res.stdout)
-fails = data.get('total_failures', 0)
+import json, sys
 
-print(f'🔒 Toplam Başarısız Deneme: \033[1;32m{fails}\033[0m')
-print(f'   • Sudo Hatalı Parola: {data.get(\"failed_sudo_count\")}')
-print(f'   • SSH Yetkisiz İstek: {data.get(\"failed_ssh_count\")}')
+try:
+    d = json.loads('''$DATA''')
+    status = d.get('status', 'UNKNOWN')
+    failed = d.get('failed_attempts', 0)
+    events = d.get('events', [])
 
-samples = data.get('sample_failures', [])
-if samples:
-    print('\n\033[1;31mSon Hatalı Giriş Kayıtları:\033[0m')
-    for s in samples:
-        print(f'  • \033[0;90m{s[:90]}\033[0m')
-else:
-    print('\n\033[1;32m✅ SİSTEM TEMİZ: Son 24 saatte şüpheli bir yetki veya oturum denemesi yok.\033[0m')
+    print(f'📊 Durum: {status} | Son 24 Saat Hatalı Giriş: {failed}\n')
+    if events:
+        print('Son Başarısız Giriş Kayıtları:')
+        print('-' * 65)
+        for ev in events:
+            print(f'• {ev}')
+    else:
+        if status == 'SECURE':
+            print('✓ Son 24 saatte başarısız yetkilendirme denemesi kaydedilmedi.')
+        else:
+            print(f'⚠️ Log okunamadı: {d.get(\"error\", \"Bilinmeyen hata\")}')
+except Exception as e:
+    print(f'Hata: {e}')
 "
 
 echo ""
-echo -e "\033[1;36m-----------------------------------------------------------------\033[0m"
-echo -e "\033[0;90mDevam etmek için bir tuşa basın...\033[0m"
+echo -e "\033[0;90mKapatmak için bir tuşa basın...\033[0m"
 read -n 1 -s -r

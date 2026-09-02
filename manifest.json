@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ozdil.auth-watch",
   "name": "Auth Watch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Ozan Özdil (ozdil)",
   "license": "MIT",
-  "description": "Authentication failure watchdog, sudo intrusion monitor, and SSH brute-force sentinel for Omarchy.",
+  "description": "System authentication and failed login attempt auditor for Omarchy.",
   "kinds": ["bar-widget"],
   "activation": "on-demand",
   "entryPoints": {
@@ -13,10 +13,10 @@
   },
   "barWidget": {
     "displayName": "Auth Watch",
-    "description": "Authentication failures and brute-force intrusion monitor.",
+    "description": "System authentication and failed login attempt auditor.",
     "category": "System",
     "defaultSection": "right",
-    "aliases": ["auth", "sudo", "ssh", "security", "watchdog"],
+    "aliases": ["auth", "login", "sudo", "pam", "security"],
     "allowMultiple": false
   }
 }

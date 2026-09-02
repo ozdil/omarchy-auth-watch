@@ -2,35 +2,56 @@
 import subprocess
 import json
 import re
+import sys
 
-def scan_failed_auth():
-    failed_sudo = []
-    failed_ssh = []
+def sanitize_str(s, max_len=80):
+    return re.sub(r'[\x00-\x1f\x7f-\x9f]', '', str(s))[:max_len]
+
+def scan_auth_journal():
     try:
+        # Structured query for auth events in last 24h, bounded to max 100 entries
         res = subprocess.run(
-            ['journalctl', '_COMM=sudo', '_COMM=sshd', '--since=24 hours ago', '-n', '50', '--no-pager'],
-            capture_output=True, text=True, timeout=2
+            ["journalctl", "-u", "systemd-logind", "-u", "sshd", "-g", "Failed|invalid|sudo", "--since", "24 hours ago", "-n", "100", "--no-pager", "-o", "cat"],
+            capture_output=True,
+            text=True,
+            timeout=2.5,
+            check=False
         )
-        lines = res.stdout.strip().split('\n')
+        if res.returncode != 0:
+            return {
+                "status": "UNKNOWN",
+                "status_color": "#f59e0b",
+                "failed_attempts": 0,
+                "error": "journalctl okunamadı (yetki/servis hatası)",
+                "events": []
+            }
+
+        lines = res.stdout.strip().splitlines()
+        failed_events = []
+
         for line in lines:
-            if 'authentication failure' in line.lower() or 'failed password' in line.lower():
-                if 'sudo' in line:
-                    failed_sudo.append(line.strip())
-                elif 'sshd' in line:
-                    failed_ssh.append(line.strip())
-    except Exception:
-        pass
+            clean_line = sanitize_str(line, 75)
+            if any(k in clean_line.lower() for k in ("failed password", "authentication failure", "incorrect password", "invalid user", "pam_unix")):
+                failed_events.append(clean_line)
 
-    total_failures = len(failed_sudo) + len(failed_ssh)
-    output = {
-        'total_failures': total_failures,
-        'failed_sudo_count': len(failed_sudo),
-        'failed_ssh_count': len(failed_ssh),
-        'status': 'ALERT' if total_failures > 0 else 'SECURE',
-        'status_color': '#e63946' if total_failures > 0 else '#00cbb8',
-        'sample_failures': (failed_sudo + failed_ssh)[:10]
-    }
-    print(json.dumps(output, indent=2))
+        failed_count = len(failed_events)
+        status = "SECURE" if failed_count == 0 else "WARNING"
+        status_color = "#00cbb8" if failed_count == 0 else "#ef4444"
 
-if __name__ == '__main__':
-    scan_failed_auth()
+        return {
+            "status": status,
+            "status_color": status_color,
+            "failed_attempts": failed_count,
+            "events": failed_events[:15]
+        }
+    except Exception as e:
+        return {
+            "status": "UNKNOWN",
+            "status_color": "#f59e0b",
+            "failed_attempts": 0,
+            "error": sanitize_str(str(e), 60),
+            "events": []
+        }
+
+if __name__ == "__main__":
+    print(json.dumps(scan_auth_journal()))

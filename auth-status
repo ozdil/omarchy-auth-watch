@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
+set -eo pipefail
+DIR="$(cd "$(dirname "$(realpath "$0")")" >/dev/null 2>&1 && pwd)"
+SCAN_OUT="$("$DIR/auth-scanner" 2>/dev/null || echo '{"status":"UNKNOWN","failed_attempts":0}')"
+
 python3 -c "
-import subprocess, json
+import json, sys
+
 try:
-    res = subprocess.run(['/home/ozdil/.config/omarchy/plugins/auth-watch/auth-scanner'], capture_output=True, text=True, timeout=3)
-    data = json.loads(res.stdout)
-    fails = data.get('total_failures', 0)
-    sudo_f = data.get('failed_sudo_count', 0)
-    ssh_f = data.get('failed_ssh_count', 0)
+    d = json.loads('''$SCAN_OUT''')
+    status = d.get('status', 'UNKNOWN')
+    failed = d.get('failed_attempts', 0)
+
+    if status == 'SECURE':
+        text = '󰌾 Auth: Güvenli'
+        css = 'normal'
+    elif status == 'WARNING':
+        text = f'🚨 {failed} Başarısız Giriş!'
+        css = 'alert'
+    else:
+        text = '󰌾 Auth: Bilinmiyor'
+        css = 'alert'
+
+    tooltip = f'🚨 Auth Log Auditor\n• Durum: {status}\n• Son 24s Hatalı Giriş: {failed}\n\n[Sol Tık] Giriş Loglarını İncele'
+    print(json.dumps({'text': text, 'tooltip': tooltip, 'class': css}))
 except Exception:
-    fails, sudo_f, ssh_f = 0, 0, 0
-
-icon = '󰌾' if fails == 0 else '🚨'
-text = f'{icon} Auth 0' if fails == 0 else f'{icon} Auth {fails}!'
-tooltip = f'🚨 Auth Watch • Oturum & Yetki Nöbetçisi\n• Son 24s Başarısız Giriş: {fails}\n• Sudo Başarısız: {sudo_f}\n• SSH Başarısız: {ssh_f}\n\n[Sol Tık] Güvenlik Loglarını İncele'
-
-print(json.dumps({
-    'text': text,
-    'tooltip': tooltip,
-    'class': 'alert' if fails > 0 else 'active'
-}))
+    print(json.dumps({'text': '󰌾 Auth: Hata', 'tooltip': 'Hata: Auth verisi alınamadı', 'class': 'alert'}))
 "
